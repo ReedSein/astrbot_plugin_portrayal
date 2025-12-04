@@ -4,4 +4,4 @@ desc: 爬取群友的聊天记录，进而用llm分析群友画像  # 插件简�
 help:   # 插件的帮助信息
 version: v1.1.0 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: Zhalslar & ReedSein # 作者
-repo: https://github.com/Zhalslar/astrbot_plugin_portrayal # 插件的仓库地址
+repo: https://github.com/ReedSein/astrbot_plugin_portrayal # 插件的仓库地址
