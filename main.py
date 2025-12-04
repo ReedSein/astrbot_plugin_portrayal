@@ -8,7 +8,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
 
-@register("astrbot_plugin_portrayal", "Zhalslar", "爬取群友聊天记录并生成性格画像", "v1.1.0")
+@register("astrbot_plugin_portrayal", "Zhalslar", "爬取群友聊天记录并生成性格画像", "v1.1.1")
 class Relationship(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -112,7 +112,6 @@ class Relationship(Star):
             specific_provider_id = self.conf.get("specific_provider_id")
             
             # 2. 如果配置为空（用户没选），则获取当前会话默认的模型 ID
-            # 注意：若 specific_provider_id 为空，llm_generate 内部会自动尝试使用系统默认模型
             target_provider_id = specific_provider_id if specific_provider_id else None
 
             system_prompt = self.conf["system_prompt_template"].format(
@@ -179,8 +178,9 @@ class Relationship(Star):
         max_query_rounds = int(end_parm) if end_parm.isdigit() else self.conf.get("max_query_rounds", 10)
         target_query_rounds = min(200, max(0, max_query_rounds))
 
+        # --- 文案修改点 1 ---
         yield event.plain_result(
-            f"🔍 正在回溯{target_query_rounds}轮历史消息以分析 {nickname}..."
+            f"🚬 吐出一口烟圈，漫不经心地回溯着 {nickname} 留下的过往痕迹..."
         )
         
         # 获取消息 (无状态调用)
@@ -189,11 +189,12 @@ class Relationship(Star):
         )
 
         if not contexts:
-            yield event.plain_result("⚠️ 未找到该群友的有效发言记录，无法生成画像。")
+            yield event.plain_result("⚠️ 烟灰缸都满了，也没翻到这家伙的一句话。（未找到有效发言记录）")
             return
 
+        # --- 文案修改点 2 ---
         yield event.plain_result(
-            f"📊 已收集 {len(contexts)} 条消息 (来自 {query_rounds} 轮扫描)，AI 正在分析性格..."
+            f"⚖️ 勉强扫了一眼 {len(contexts)} 条消息 (基于 {query_rounds} 轮扫描)... 罗莎正在透过屏幕，给这个家伙的性格定性..."
         )
 
         try:
@@ -202,7 +203,7 @@ class Relationship(Star):
                 url = await self.text_to_image(llm_respond)
                 yield event.image_result(url)
             else:
-                yield event.plain_result("❌ LLM 分析失败，响应为空。")
+                yield event.plain_result("❌ 啧，灵感枯竭了。（LLM 响应为空）")
         except Exception as e:
             logger.error(f"分析失败: {e}")
-            yield event.plain_result(f"分析失败: {e}")
+            yield event.plain_result(f"分析中断: {e}")
