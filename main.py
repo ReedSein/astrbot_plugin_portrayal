@@ -1,6 +1,7 @@
 import asyncio
 import re
 import html
+import markdown
 from datetime import datetime
 from typing import Any, List, Dict
 
@@ -18,7 +19,7 @@ PORTRAYAL_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <style>
-        body, h1, h2, p { margin: 0; padding: 0; }
+        body, h1, h2, h3, h4, p, ul, ol, li, pre, blockquote { margin: 0; padding: 0; }
         
         body {
             font-family: 'Source Han Serif SC', 'Noto Serif CJK SC', 'SimSun', 'Times New Roman', serif;
@@ -26,7 +27,7 @@ PORTRAYAL_TEMPLATE = """
             background-image: linear-gradient(to bottom right, #f4f1ea, #e8e4db);
             color: #2c2c2c;
             display: flex;
-            justify_content: center;
+            justify-content: center;
             align-items: center;
             min-height: 100vh;
             padding: 40px;
@@ -35,21 +36,22 @@ PORTRAYAL_TEMPLATE = """
 
         .main-container {
             width: 100%;
-            max-width: 900px;
+            max-width: 900px; /* 限制最大宽度，防止过宽 */
             background: #fffefb;
             border: 8px solid #2c2c2c;
             outline: 2px solid #c5a059;
             outline-offset: -14px;
-            padding: 80px 60px;
+            padding: 80px 100px; /* 增加左右Padding，制造呼吸感 */
             box-shadow: 0 10px 30px rgba(0,0,0,0.15);
             position: relative;
+            margin: 0 auto; /* 水平居中 */
         }
 
         .header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 50px;
             border-bottom: 2px solid #c5a059;
-            padding-bottom: 20px;
+            padding-bottom: 25px;
         }
 
         .title {
@@ -67,25 +69,113 @@ PORTRAYAL_TEMPLATE = """
             letter-spacing: 0.05em;
         }
 
+        /* --- Content Styling & Markdown Support --- */
         .content {
-            font-size: 26px;
-            line-height: 1.8;
+            font-size: 24px;
+            line-height: 1.9;
             text-align: justify;
             color: #333;
-            margin-bottom: 40px;
-            white-space: pre-wrap;
+            margin-bottom: 50px;
             font-family: inherit;
         }
         
-        /* Drop cap for the first letter of the content (Optional but stylish) */
-        .content::first-letter {
-            font-size: 3.5em;
-            float: left;
-            margin-right: 0.1em;
-            line-height: 0.8;
-            color: #c5a059;
-            font-family: 'Times New Roman', serif;
+        /* Paragraph Spacing */
+        .content p {
+            margin-bottom: 1.2em;
         }
+
+        /* Typography Emphasis */
+        .content strong {
+            color: #8b4513; /* 赭石色 */
+            font-weight: 800;
+        }
+        
+        .content em {
+            color: #556b2f; /* 橄榄绿 */
+            font-family: 'Georgia', serif;
+        }
+
+        /* Blockquotes - Classical Side Note Style */
+        .content blockquote {
+            border-left: 5px solid #8b0000; /* 深红色竖线 */
+            background-color: rgba(245, 245, 220, 0.3); /* 极淡的米色背景 */
+            margin: 1.5em 0;
+            padding: 15px 30px;
+            font-style: italic;
+            color: #555;
+            position: relative;
+        }
+        
+        /* Lists - Classical Bullets */
+        .content ul, .content ol {
+            margin: 1em 0;
+            padding-left: 1.5em;
+        }
+        
+        .content ul li {
+            list-style-type: none;
+            position: relative;
+            margin-bottom: 0.5em;
+            padding-left: 0.5em;
+        }
+        
+        .content ul li::before {
+            content: "◆"; /* 菱形装饰 */
+            color: #c5a059;
+            font-size: 0.8em;
+            position: absolute;
+            left: -1.2em;
+            top: 0.1em;
+        }
+
+        .content ol li {
+            list-style-type: decimal-leading-zero;
+            color: #555;
+            font-family: 'Georgia', serif;
+            margin-bottom: 0.5em;
+            padding-left: 0.5em;
+        }
+
+        /* Code Blocks - Aged Paper Style */
+        .content pre {
+            background-color: #f0e6d2; /* 浅褐色/做旧纸张色 */
+            border: 1px solid #dcd0b0;
+            padding: 20px;
+            margin: 1.5em 0;
+            border-radius: 4px;
+            overflow-x: auto;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.02);
+        }
+        
+        .content code {
+            font-family: 'Courier Prime', 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #4a4a4a;
+        }
+        
+        /* Inline Code */
+        .content p code {
+            background-color: #f0e6d2;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #e3dcc0;
+            margin: 0 2px;
+            color: #8b4513;
+        }
+
+        /* Headings within Markdown */
+        .content h1, .content h2, .content h3 {
+            color: #1a1a1a;
+            margin-top: 1.5em;
+            margin-bottom: 0.8em;
+            font-weight: bold;
+            border-bottom: 1px solid #e8e4db;
+            padding-bottom: 0.3em;
+        }
+        .content h1 { font-size: 1.4em; }
+        .content h2 { font-size: 1.25em; }
+        .content h3 { font-size: 1.1em; }
+
 
         .footer {
             text-align: center;
@@ -134,14 +224,15 @@ class Relationship(Star):
     # --- 渲染逻辑 ---
 
     async def _render_portrayal(self, event: AstrMessageEvent, nickname: str, content: str):
-        """渲染古典主义风格画像"""
+        """渲染古典主义风格画像 (支持 Markdown)"""
         try:
-            # HTML Escape to prevent layout breakage
-            safe_content = html.escape(content)
+            # 1. Markdown 解析 (转换为 HTML)
+            # extensions: extra (包含表格、属性列表等), nl2br (换行转<br>), codehilite (代码高亮支持)
+            html_content = markdown.markdown(content, extensions=['extra', 'nl2br'])
             
             render_data = {
                 "nickname": nickname,
-                "content": safe_content,
+                "content": html_content, # 注入解析后的 HTML
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
@@ -149,7 +240,7 @@ class Relationship(Star):
                 PORTRAYAL_TEMPLATE, 
                 render_data, 
                 options={
-                    "viewport": {"width": 1000, "height": 1200}, 
+                    "viewport": {"width": 1000, "height": 1400}, # 略微增加高度适应排版
                     "deviceScaleFactor": 2, 
                     "full_page": True
                 }
