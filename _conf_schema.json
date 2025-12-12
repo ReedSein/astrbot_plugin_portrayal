@@ -29,5 +29,17 @@
         "hint": "如果不选，则跟随当前会话使用的模型。建议选择上下文窗口较大的模型。",
         "_special": "select_provider", 
         "default": ""
+    },
+    "llm_max_retries": {
+        "description": "LLM 最大重试次数",
+        "type": "int",
+        "hint": "当 LLM 返回为空或报错时尝试重新生成的次数",
+        "default": 3
+    },
+    "llm_retry_delay": {
+        "description": "LLM 重试间隔(秒)",
+        "type": "int",
+        "hint": "每次重试前等待的时间",
+        "default": 2
     }
 }
