@@ -1,5 +1,6 @@
 import asyncio
 import re
+import html
 from datetime import datetime
 from typing import Any, List, Dict
 
@@ -10,11 +11,156 @@ from astrbot.api.star import Context, Star, register
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
 
+# --- Neoclassical HTML Template ---
+PORTRAYAL_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body, h1, h2, p { margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Source Han Serif SC', 'Noto Serif CJK SC', 'SimSun', 'Times New Roman', serif;
+            background-color: #f4f1ea;
+            background-image: linear-gradient(to bottom right, #f4f1ea, #e8e4db);
+            color: #2c2c2c;
+            display: flex;
+            justify_content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 40px;
+            box-sizing: border-box;
+        }
+
+        .main-container {
+            width: 100%;
+            max-width: 900px;
+            background: #fffefb;
+            border: 8px solid #2c2c2c;
+            outline: 2px solid #c5a059;
+            outline-offset: -14px;
+            padding: 80px 60px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            position: relative;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 2px solid #c5a059;
+            padding-bottom: 20px;
+        }
+
+        .title {
+            font-size: 48px;
+            font-weight: bold;
+            color: #1a1a1a;
+            margin-bottom: 10px;
+            letter-spacing: 0.1em;
+        }
+
+        .subtitle {
+            font-size: 20px;
+            color: #8b6b4e;
+            font-style: italic;
+            letter-spacing: 0.05em;
+        }
+
+        .content {
+            font-size: 26px;
+            line-height: 1.8;
+            text-align: justify;
+            color: #333;
+            margin-bottom: 40px;
+            white-space: pre-wrap;
+            font-family: inherit;
+        }
+        
+        /* Drop cap for the first letter of the content (Optional but stylish) */
+        .content::first-letter {
+            font-size: 3.5em;
+            float: left;
+            margin-right: 0.1em;
+            line-height: 0.8;
+            color: #c5a059;
+            font-family: 'Times New Roman', serif;
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 16px;
+            color: #999;
+            margin-top: 50px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+            font-family: sans-serif;
+            letter-spacing: 1px;
+        }
+        
+        .signature {
+            font-family: 'Times New Roman', serif;
+            font-size: 24px;
+            font-style: italic;
+            color: #c5a059;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header">
+            <div class="title">人物侧写</div>
+            <div class="subtitle">PORTRAYAL OF {{ nickname }}</div>
+        </div>
+        
+        <div class="content">{{ content }}</div>
+
+        <div class="footer">
+            <div class="signature">AstrBot Analysis</div>
+            <div>{{ timestamp }}</div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
 @register("astrbot_plugin_portrayal", "Zhalslar", "爬取群友聊天记录并生成性格画像", "v1.2.2")
 class Relationship(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.conf = config
+
+    # --- 渲染逻辑 ---
+
+    async def _render_portrayal(self, event: AstrMessageEvent, nickname: str, content: str):
+        """渲染古典主义风格画像"""
+        try:
+            # HTML Escape to prevent layout breakage
+            safe_content = html.escape(content)
+            
+            render_data = {
+                "nickname": nickname,
+                "content": safe_content,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            img_url = await self.html_render(
+                PORTRAYAL_TEMPLATE, 
+                render_data, 
+                options={
+                    "viewport": {"width": 1000, "height": 1200}, 
+                    "deviceScaleFactor": 2, 
+                    "full_page": True
+                }
+            )
+            if img_url:
+                yield event.image_result(img_url)
+            else:
+                yield event.plain_result(f"【渲染失败】\n{content}")
+        except Exception as e:
+            logger.error(f"渲染异常: {e}")
+            yield event.plain_result(f"【系统异常】\n{content}")
 
     # --- 核心逻辑部分 ---
 
@@ -283,8 +429,8 @@ class Relationship(Star):
             # 传入完整信息字典
             llm_respond = await self.get_llm_respond(user_info, contexts)
             if llm_respond:
-                url = await self.text_to_image(llm_respond)
-                yield event.image_result(url)
+                async for msg in self._render_portrayal(event, nickname, llm_respond):
+                    yield msg
             else:
                 yield event.plain_result("❌ 啧，灵感枯竭了。（LLM 响应为空）")
         except Exception as e:
