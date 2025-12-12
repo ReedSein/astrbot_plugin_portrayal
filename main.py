@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime
 from typing import Any, List, Dict
 
@@ -83,46 +84,87 @@ class Relationship(Star):
                 
         return contexts, query_rounds
 
+    def _has_api_error_pattern(self, text: str) -> bool:
+        """统一的 API 错误检测逻辑（正则表达式）"""
+        if not text: return False
+        
+        # 1. AstrBot 失败标记
+        is_astrbot_fail = "AstrBot" in text and "请求失败" in text
+        if is_astrbot_fail: return True
+        
+        # 2. 错误模式匹配
+        error_patterns = [
+            r"Error\s*code:\s*5\d{2}",       # 500, 502, 503, 504...
+            r"APITimeoutError",
+            r"Request\s*timed\s*out",
+            r"InternalServerError",
+            r"count_token_failed",
+            r"bad_response_status_code",
+            r"connection\s*error",
+            r"remote\s*disconnected",
+            r"read\s*timeout",
+            r"connect\s*timeout"
+        ]
+        
+        combined_pattern = re.compile("|".join(error_patterns), re.IGNORECASE)
+        return bool(combined_pattern.search(text))
+
     async def get_llm_respond(self, user_info: Dict[str, Any], contexts: List[dict]) -> str | None:
-        """调用 LLM 进行分析"""
+        """调用 LLM 进行分析 (带智能重试)"""
+        specific_provider_id = self.conf.get("specific_provider_id")
+        target_provider_id = specific_provider_id if specific_provider_id else None
+        
+        # 获取重试配置
+        max_retries = max(1, int(self.conf.get("llm_max_retries", 3)))
+        retry_delay = max(0, int(self.conf.get("llm_retry_delay", 2)))
+
+        # 准备格式化参数
+        format_args = user_info.copy()
+        format_args["gender_cn"] = "他" if user_info.get("gender") == "male" else "她"
+        format_args.setdefault("nickname", "群友")
+        
         try:
-            specific_provider_id = self.conf.get("specific_provider_id")
-            target_provider_id = specific_provider_id if specific_provider_id else None
+            system_prompt = self.conf["system_prompt_template"].format(**format_args)
+        except KeyError as e:
+            logger.warning(f"[portrayal] System Prompt 格式化缺少变量: {e}, 将使用默认简单模板")
+            system_prompt = f"分析此人的性格。档案：{user_info.get('profile', '无')}"
 
-            # 准备格式化参数
-            format_args = user_info.copy()
-            # 兼容处理 gender 为中文，方便 Prompt 阅读
-            format_args["gender_cn"] = "他" if user_info.get("gender") == "male" else "她"
-            # 确保 nickname 存在
-            format_args.setdefault("nickname", "群友")
-            
-            # 使用配置中的模板进行格式化
-            # 用户现在可以在配置里写： "分析{nickname}，{gender_cn}今年{age}岁，是本群的{role}..."
+        final_prompt = (
+            f"以下是 {user_info.get('nickname')} 的聊天记录片段。请根据 System Prompt 进行深度性格分析。"
+        )
+
+        for attempt in range(1, max_retries + 1):
             try:
-                system_prompt = self.conf["system_prompt_template"].format(**format_args)
-            except KeyError as e:
-                # 容错：如果用户写了不存在的变量，回退到安全模式或报错提示
-                logger.warning(f"[portrayal] System Prompt 格式化缺少变量: {e}, 将使用默认简单模板")
-                system_prompt = f"分析此人的性格。档案：{user_info.get('profile', '无')}"
+                if attempt > 1:
+                    logger.info(f"[portrayal] 正在进行第 {attempt}/{max_retries} 次 LLM 重试...")
+                
+                llm_response = await self.context.llm_generate(
+                    prompt=final_prompt,
+                    system_prompt=system_prompt,
+                    contexts=contexts,
+                    chat_provider_id=target_provider_id
+                )
+                
+                text = llm_response.completion_text
+                
+                # 校验逻辑
+                is_empty = not (text and text.strip())
+                is_error = self._has_api_error_pattern(text)
+                
+                if not is_empty and not is_error:
+                    return text
+                else:
+                    logger.warning(f"[portrayal] 第 {attempt} 次生成结果无效 (Empty: {is_empty}, Error: {is_error})")
+                    if attempt < max_retries:
+                        await asyncio.sleep(retry_delay)
+            
+            except Exception as e:
+                logger.error(f"[portrayal] 第 {attempt} 次调用异常: {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
 
-            # 构造 Prompt
-            # 注意：不再强制在 User Prompt 里插入 profile，而是完全依赖 System Prompt 的配置
-            # 这样给了用户最大的自由度
-            final_prompt = (
-                f"以下是 {user_info.get('nickname')} 的聊天记录片段。请根据 System Prompt 进行深度性格分析。"
-            )
-
-            llm_response = await self.context.llm_generate(
-                prompt=final_prompt,
-                system_prompt=system_prompt,
-                contexts=contexts,
-                chat_provider_id=target_provider_id
-            )
-            return llm_response.completion_text
-
-        except Exception as e:
-            logger.error(f"LLM 调用失败: {e}")
-            return None
+        logger.error("[portrayal] LLM 重试耗尽，分析失败。")
+        return None
 
     # --- 信息获取与处理部分 ---
 
