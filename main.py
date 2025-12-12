@@ -200,14 +200,14 @@ PORTRAYAL_TEMPLATE = """
 <body>
     <div class="main-container">
         <div class="header">
-            <div class="title">人物侧写</div>
+            <div class="title">Rosaの餐桌⚜️</div>
             <div class="subtitle">PORTRAYAL OF {{ nickname }}</div>
         </div>
         
         <div class="content">{{ content }}</div>
 
         <div class="footer">
-            <div class="signature">AstrBot Analysis</div>
+            <div class="signature">Rosa's Collection</div>
             <div>{{ timestamp }}</div>
         </div>
     </div>
