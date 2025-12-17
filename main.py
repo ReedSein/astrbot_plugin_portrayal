@@ -267,6 +267,12 @@ class Relationship(Star):
             text_segments = [seg["data"]["text"] for seg in msg["message"] if seg["type"] == "text"]
             text = "".join(text_segments).strip()
             
+            # 提取并格式化时间戳
+            ts = msg.get("time", 0)
+            if ts:
+                dt_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+                text = f"[{dt_str}] {text}"
+            
             if text:
                 contexts.append({"role": "user", "content": text})
 
